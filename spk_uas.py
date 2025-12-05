@@ -5,143 +5,184 @@ from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
 
-st.set_page_config(page_title="Clustering - Robust", layout="wide")
-st.title("Clustering (robust) — pilih sendiri kolom numerik & input manual")
+# Halaman utama
+st.set_page_config(page_title="Clustering K-Means", layout="wide")
+st.title("Clustering K-Means — Pilih Fitur & Coba Input Manual")
 
-# --- Load CSV ---
+# Baca dataset
 @st.cache_data
-def load_csv(path="penguins.csv"):
-    return pd.read_csv(path)
+def baca_csv(nama_file="penguins.csv"):
+    """Fungsi kecil buat baca file CSV. 
+       Disimpan cache biar nggak ngulang load tiap refresh."""
+    return pd.read_csv(nama_file)
 
-# Let user upload or use local file
 st.sidebar.header("Data")
-uploaded = st.sidebar.file_uploader("Upload CSV (opsional)", type=["csv"])
-if uploaded is not None:
-    df = pd.read_csv(uploaded)
+
+file_upload = st.sidebar.file_uploader("Upload CSV (opsional)", type=["csv"])
+
+if file_upload is not None:
+    data_raw = pd.read_csv(file_upload)
 else:
     try:
-        df = load_csv("penguins.csv")
-    except Exception as e:
-        st.error("Tidak menemukan penguins.csv di folder. Upload file CSV melalui sidebar.")
+        data_raw = baca_csv("penguins.csv")
+    except:
+        st.error("File penguins.csv tidak ditemukan. Coba upload file lewat sidebar.")
         st.stop()
 
-st.subheader("Preview dataset (5 baris)")
-st.dataframe(df.head())
+st.subheader("Tampilan Data (5 baris pertama)")
+st.dataframe(data_raw.head())
 
-# --- Show column names to user ---
-st.sidebar.subheader("Kolom pada dataset")
-cols = list(df.columns)
-st.sidebar.write(cols)
+# Tampilkan kolom dataset
+st.sidebar.subheader("Daftar kolom")
+semua_kolom = list(data_raw.columns)
+st.sidebar.write(semua_kolom)
 
-# --- Detect numeric columns automatically ---
-numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+# Cari kolom yg angkanya valid
+kolom_numerik = data_raw.select_dtypes(include=[np.number]).columns.tolist()
 st.sidebar.subheader("Kolom numerik terdeteksi")
-st.sidebar.write(numeric_cols)
+st.sidebar.write(kolom_numerik)
 
-if len(numeric_cols) == 0:
-    st.error("Tidak ada kolom numerik terdeteksi. Pastikan file CSV memiliki kolom yang bertipe angka.")
+if len(kolom_numerik) == 0:
+    st.error("Dataset ini tidak punya kolom numerik.")
     st.stop()
 
-# --- User chooses features for clustering ---
-st.sidebar.subheader("Pilih fitur untuk clustering")
-feats = st.sidebar.multiselect("Fitur numerik (minimal 2)", numeric_cols, default=numeric_cols[:4] if len(numeric_cols)>=4 else numeric_cols)
+# Pilih fitur clustering
+st.sidebar.subheader("Pilih fitur yang mau dipakai")
+fitur = st.sidebar.multiselect(
+    "Pilih minimal dua kolom",
+    kolom_numerik,
+    default=kolom_numerik[:4] if len(kolom_numerik) >= 4 else kolom_numerik
+)
 
-if len(feats) < 2:
-    st.warning("Pilih minimal 2 fitur numerik agar bisa divisualisasikan.")
-    # still allow but stop further
+if len(fitur) < 2:
+    st.warning("Minimal pilih 2 fitur supaya bisa dipetakan.")
     st.stop()
 
-# --- Optional: preview statistics ---
 st.subheader("Statistik fitur terpilih")
-st.write(df[feats].describe())
+st.write(data_raw[fitur].describe())
 
-# --- Preprocessing: drop NA rows for selected features ---
-data = df[feats].dropna().reset_index(drop=True)
+# Buang baris yang ada NaN di fitur terpilih
+data_bersih = data_raw[fitur].dropna().reset_index(drop=True)
 
-# --- Normalisasi pilihan ---
-normalize = st.sidebar.checkbox("Normalisasi (StandardScaler)", value=True)
-scaler = StandardScaler() if normalize else None
-X = data.values
-X_scaled = scaler.fit_transform(X) if scaler else X
+# Normalisasi 
+pakai_scaler = st.sidebar.checkbox("Gunakan normalisasi (StandardScaler)", value=True)
 
-# --- K selection & Elbow ---
+if pakai_scaler:
+    scaler = StandardScaler()
+    data_input = scaler.fit_transform(data_bersih.values)
+else:
+    scaler = None
+    data_input = data_bersih.values
+
+# Pilih jumlah cluster
 st.sidebar.subheader("Parameter K-Means")
-k = st.sidebar.slider("Jumlah cluster (k)", 2, 8, 3)
+jumlah_k = st.sidebar.slider("Jumlah cluster", 2, 8, 3)
 
-if st.sidebar.button("Tampilkan Elbow (1..10)"):
-    inertias = []
+# Elbow 
+if st.sidebar.button("Hitung Elbow Curve (1–10)"):
+    inertia_list = []
     for i in range(1, 11):
-        km_tmp = KMeans(n_clusters=i, random_state=42, n_init="auto")
-        km_tmp.fit(X_scaled)
-        inertias.append(km_tmp.inertia_)
-    fig_elb, ax_elb = plt.subplots()
-    ax_elb.plot(range(1, 11), inertias, marker="o")
-    ax_elb.set_xlabel("K")
-    ax_elb.set_ylabel("Inertia (WCSS)")
-    ax_elb.set_title("Elbow Method")
-    st.pyplot(fig_elb)
+        model_tmp = KMeans(n_clusters=i, random_state=42, n_init="auto")
+        model_tmp.fit(data_input)
+        inertia_list.append(model_tmp.inertia_)
+    fig_e, ax_e = plt.subplots()
+    ax_e.plot(range(1, 11), inertia_list, marker="o")
+    ax_e.set_xlabel("K")
+    ax_e.set_ylabel("Inertia")
+    ax_e.set_title("Elbow Method")
+    st.pyplot(fig_e)
 
-# --- Train KMeans on selected features ---
-km = KMeans(n_clusters=k, random_state=42)
-km.fit(X_scaled)
-labels = km.predict(X_scaled)
-data_out = data.copy()
-data_out["cluster"] = labels
+# Jalankan K-Means
+model = KMeans(n_clusters=jumlah_k, random_state=42)
+cluster_hasil = model.fit_predict(data_input)
 
-st.subheader("Ringkasan hasil clustering")
-st.write("Jumlah tiap cluster:")
-st.write(data_out["cluster"].value_counts().sort_index())
-st.write("Rata-rata fitur per cluster:")
-st.write(data_out.groupby("cluster").mean())
+hasil = data_bersih.copy()
+hasil["cluster"] = cluster_hasil
 
-# --- Scatter plot of first two selected features ---
-st.subheader("Visualisasi (2 fitur pertama yang dipilih)")
-xcol, ycol = feats[0], feats[1]
-fig, ax = plt.subplots(figsize=(7,5))
-scatter = ax.scatter(data_out[xcol], data_out[ycol], c=data_out["cluster"], cmap="tab10", alpha=0.7)
-ax.set_xlabel(xcol); ax.set_ylabel(ycol)
-ax.set_title(f"{xcol} vs {ycol} (warna = cluster)")
-plt.colorbar(scatter, ax=ax, label="cluster")
+st.subheader("Ringkasan Clustering")
+st.write("Jumlah anggota tiap cluster:")
+st.write(hasil["cluster"].value_counts().sort_index())
+st.write("Rata-rata per fitur dalam cluster:")
+st.write(hasil.groupby("cluster").mean())
+
+# Plot (pakai 2 fitur pertama)
+x_ft, y_ft = fitur[0], fitur[1]
+
+st.subheader(f"Visualisasi Cluster: {x_ft} vs {y_ft}")
+
+fig, ax = plt.subplots(figsize=(7, 5))
+p = ax.scatter(
+    hasil[x_ft],
+    hasil[y_ft],
+    c=hasil["cluster"],
+    cmap="tab10",
+    alpha=0.7
+)
+ax.set_xlabel(x_ft)
+ax.set_ylabel(y_ft)
+ax.set_title("Plot Cluster")
+plt.colorbar(p, ax=ax, label="Cluster")
 st.pyplot(fig)
 
-# --- Dynamic manual input form based on chosen features ---
-st.subheader("Prediksi cluster dari input manual (isikan nilai untuk fitur terpilih)")
+# Prediksi manual
+st.subheader("Coba Prediksi Cluster Dari Input Manual")
 
-# create number inputs dynamically; provide sensible ranges from data
-input_vals = []
-cols_minmax = {}
-for f in feats:
-    col_min = float(np.nanmin(df[f])) if df[f].notna().any() else 0.0
-    col_max = float(np.nanmax(df[f])) if df[f].notna().any() else 1.0
-    col_mean = float(np.nanmean(df[f])) if df[f].notna().any() else 0.0
-    cols_minmax[f] = (col_min, col_max, col_mean)
+nilai_input = []
+rentang = {}
 
-st.markdown("Isi nilai (default = rata-rata kolom). Jika ingin pakai nilai ekstrem, edit range sesuai kebutuhan.")
-cols_layout = st.columns(len(feats))
-for i, f in enumerate(feats):
-    mn, mx, mv = cols_minmax[f]
-    # Expand ranges slightly so user can input outside observed range if needed
-    pad = (mx - mn) * 0.1 if mx != mn else 1.0
-    v = cols_layout[i].number_input(f"{f}", min_value=mn - pad, max_value=mx + pad, value=mv, format="%.3f")
-    input_vals.append(v)
+for f in fitur:
+    # Cari nilai min, max, dan rata-rata untuk bantuan input
+    minv = float(data_raw[f].min())
+    maxv = float(data_raw[f].max())
+    meanv = float(data_raw[f].mean())
+    rentang[f] = (minv, maxv, meanv)
 
-if st.button("Prediksi cluster dari input"):
-    arr = np.array([input_vals])
-    arr_scaled = scaler.transform(arr) if scaler else arr
-    pred = km.predict(arr_scaled)[0]
-    st.success(f"Input kamu diprediksi masuk ke **Cluster {pred}**")
-    # show centroid of that cluster (in original scale)
-    centroids_scaled = km.cluster_centers_
-    # convert centroids back if scaled
+st.markdown("Silakan isi nilai fitur (default = rata-rata).")
+
+kol_layout = st.columns(len(fitur))
+
+for idx, f in enumerate(fitur):
+    minv, maxv, meanv = rentang[f]
+    # beri sedikit margin agar user bebas isi
+    pad = (maxv - minv) * 0.1 if maxv != minv else 1
+    val = kol_layout[idx].number_input(
+        f,
+        min_value=minv - pad,
+        max_value=maxv + pad,
+        value=meanv,
+        format="%.3f"
+    )
+    nilai_input.append(val)
+
+if st.button("Prediksi"):
+    arr = np.array([nilai_input])
+    # scaling kembali kalau dipakai
     if scaler:
-        centroids = scaler.inverse_transform(centroids_scaled)
+        arr_scaled = scaler.transform(arr)
     else:
-        centroids = centroids_scaled
-    centroid_dict = {feat: float(centroids[pred, idx]) for idx, feat in enumerate(feats)}
-    st.write("Centroid cluster (rata-rata fitur cluster) :")
-    st.json(centroid_dict)
+        arr_scaled = arr
+    pred = model.predict(arr_scaled)[0]
+    st.success(f"Prediksi masuk cluster: **{pred}**")
 
-# --- Allow download of clustered data ---
-st.subheader("Download hasil clustering")
-csv = data_out.to_csv(index=False).encode("utf-8")
-st.download_button("Download CSV hasil (fitur + cluster)", data=csv, file_name="clustered_result.csv", mime="text/csv")
+    # tunjukkan nilai centroid (kembali ke skala asli)
+    if scaler:
+        centroid_real = scaler.inverse_transform(model.cluster_centers_)
+    else:
+        centroid_real = model.cluster_centers_
+
+    centroid_map = {
+        f: float(centroid_real[pred, i]) for i, f in enumerate(fitur)
+    }
+
+    st.write("Rata-rata cluster (centroid):")
+    st.json(centroid_map)
+
+# Download hasil
+st.subheader("Download Hasil Clustering")
+file_csv = hasil.to_csv(index=False).encode("utf-8")
+st.download_button(
+    "Download CSV Hasil",
+    data=file_csv,
+    file_name="hasil_cluster.csv",
+    mime="text/csv"
+)
